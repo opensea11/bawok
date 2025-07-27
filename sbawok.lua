@@ -10,15 +10,16 @@ local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 
 local Flying = false
 local NoClipping = false
+local GodMode = false
 local Speed = 60
 local BodyGyro = nil
 local BodyVelocity = nil
 local OriginalCanCollide = {}
 
--- Custom Name Display variables
-local CustomNameEnabled = false
-local CustomNameGui = nil
-local CustomNameText = "SILUMAN BAWOK"
+-- Godmode variables
+local OriginalMaxHealth = nil
+local HealthConnection = nil
+local TakeDamageConnection = nil
 
 -- Network method variables
 local NetworkMethod = "BodyVelocity" -- "BodyVelocity", "CFrame", or "Humanoid"
@@ -27,77 +28,65 @@ local MainUI
 local MainFrame
 local GuiVisible = true
 
--- CUSTOM NAME DISPLAY FUNCTIONS
-local function CreateCustomName()
-	if CustomNameGui then CustomNameGui:Destroy() end
-	
-	if Character and Character:FindFirstChild("Head") then
-		CustomNameGui = Instance.new("BillboardGui")
-		CustomNameGui.Name = "CustomNameDisplay"
-		CustomNameGui.Parent = Character.Head
-		CustomNameGui.Size = UDim2.new(0, 200, 0, 50)
-		CustomNameGui.StudsOffset = Vector3.new(0, 2, 0)
-		CustomNameGui.Adornee = Character.Head
+-- GODMODE FUNCTIONS
+local function StartGodMode()
+	if Humanoid then
+		-- Store original max health
+		if not OriginalMaxHealth then
+			OriginalMaxHealth = Humanoid.MaxHealth
+		end
 		
-		local nameFrame = Instance.new("Frame")
-		nameFrame.Size = UDim2.new(1, 0, 1, 0)
-		nameFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-		nameFrame.BackgroundTransparency = 0.3
-		nameFrame.BorderSizePixel = 0
-		nameFrame.Parent = CustomNameGui
+		-- Set health to maximum and keep it there
+		Humanoid.MaxHealth = math.huge
+		Humanoid.Health = math.huge
 		
-		local nameCorner = Instance.new("UICorner")
-		nameCorner.CornerRadius = UDim.new(0, 8)
-		nameCorner.Parent = nameFrame
-		
-		local nameLabel = Instance.new("TextLabel")
-		nameLabel.Size = UDim2.new(1, 0, 1, 0)
-		nameLabel.BackgroundTransparency = 1
-		nameLabel.Text = CustomNameText
-		nameLabel.TextColor3 = Color3.fromRGB(255, 0, 0) -- Red color
-		nameLabel.Font = Enum.Font.GothamBold
-		nameLabel.TextSize = 18
-		nameLabel.TextStrokeTransparency = 0
-		nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-		nameLabel.Parent = nameFrame
-		
-		-- Add glowing effect
-		local nameGlow = Instance.new("TextLabel")
-		nameGlow.Size = UDim2.new(1, 2, 1, 2)
-		nameGlow.Position = UDim2.new(0, -1, 0, -1)
-		nameGlow.BackgroundTransparency = 1
-		nameGlow.Text = CustomNameText
-		nameGlow.TextColor3 = Color3.fromRGB(255, 100, 100)
-		nameGlow.Font = Enum.Font.GothamBold
-		nameGlow.TextSize = 18
-		nameGlow.TextTransparency = 0.5
-		nameGlow.ZIndex = nameLabel.ZIndex - 1
-		nameGlow.Parent = nameFrame
-		
-		-- Animate the name (pulsing effect)
-		spawn(function()
-			while CustomNameGui and CustomNameGui.Parent do
-				for i = 1, 10 do
-					if nameLabel then
-						nameLabel.TextColor3 = Color3.fromRGB(255, math.min(255, i * 25), 0)
-					end
-					wait(0.1)
-				end
-				for i = 10, 1, -1 do
-					if nameLabel then
-						nameLabel.TextColor3 = Color3.fromRGB(255, math.min(255, i * 25), 0)
-					end
-					wait(0.1)
-				end
+		-- Connect health changed event to maintain infinite health
+		if HealthConnection then HealthConnection:Disconnect() end
+		HealthConnection = Humanoid.HealthChanged:Connect(function(health)
+			if GodMode and health < math.huge then
+				Humanoid.Health = math.huge
 			end
 		end)
+		
+		-- Try to block TakeDamage (if it exists)
+		pcall(function()
+			if TakeDamageConnection then TakeDamageConnection:Disconnect() end
+			if Humanoid:FindFirstChild("TakeDamage") then
+				TakeDamageConnection = Humanoid.TakeDamage:Connect(function()
+					return -- Block all damage
+				end)
+			end
+		end)
+		
+		GodMode = true
+		print("🛡️ GodMode Activated - Kebal damage!")
 	end
 end
 
-local function RemoveCustomName()
-	if CustomNameGui then
-		CustomNameGui:Destroy()
-		CustomNameGui = nil
+local function StopGodMode()
+	if Humanoid then
+		-- Restore original health values
+		if OriginalMaxHealth then
+			Humanoid.MaxHealth = OriginalMaxHealth
+			Humanoid.Health = OriginalMaxHealth
+		else
+			Humanoid.MaxHealth = 100
+			Humanoid.Health = 100
+		end
+		
+		-- Disconnect health monitoring
+		if HealthConnection then
+			HealthConnection:Disconnect()
+			HealthConnection = nil
+		end
+		
+		if TakeDamageConnection then
+			TakeDamageConnection:Disconnect()
+			TakeDamageConnection = nil
+		end
+		
+		GodMode = false
+		print("🩸 GodMode Deactivated - Damage normal kembali")
 	end
 end
 
@@ -211,10 +200,10 @@ local function buildMainGUI()
 	MainUI.Parent = CoreGui
 	MainUI.ResetOnSpawn = false
 
-	-- Main Frame (Made taller to accommodate new section)
+	-- Main Frame (increased height for godmode section)
 	MainFrame = Instance.new("Frame")
 	MainFrame.Size = UDim2.new(0, 300, 0, 360)
-	MainFrame.Position = UDim2.new(0.02, 0, 0.25, 0)
+	MainFrame.Position = UDim2.new(0.02, 0, 0.15, 0)
 	MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 	MainFrame.BackgroundTransparency = 0.1
 	MainFrame.BorderSizePixel = 0
@@ -229,7 +218,7 @@ local function buildMainGUI()
 	title.Size = UDim2.new(1, 0, 0, 35)
 	title.Position = UDim2.new(0, 0, 0, 0)
 	title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-	title.Text = "🚀 Enhanced Fly & NoClip [Drag Me]"
+	title.Text = "🚀 Enhanced Fly + GodMode [Drag Me]"
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold
 	title.TextSize = 14
@@ -267,66 +256,21 @@ local function buildMainGUI()
 		end
 	end)
 
-	-- Custom Name Section
-	local nameSection = Instance.new("Frame")
-	nameSection.Size = UDim2.new(1, -10, 0, 80)
-	nameSection.Position = UDim2.new(0, 5, 0, 40)
-	nameSection.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-	nameSection.BackgroundTransparency = 0.3
-	nameSection.BorderSizePixel = 0
-	nameSection.Parent = MainFrame
-	
-	local nameCorner = Instance.new("UICorner")
-	nameCorner.CornerRadius = UDim.new(0, 6)
-	nameCorner.Parent = nameSection
+	-- Hover effect for title
+	title.MouseEnter:Connect(function()
+		title.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+		title.Text = "🚀 Enhanced Fly + GodMode [Dragging...]"
+	end)
 
-	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Size = UDim2.new(1, 0, 0, 20)
-	nameLabel.Position = UDim2.new(0, 0, 0, 5)
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.Text = "👹 Custom Name Display"
-	nameLabel.TextColor3 = Color3.new(1, 1, 1)
-	nameLabel.Font = Enum.Font.Gotham
-	nameLabel.TextSize = 11
-	nameLabel.Parent = nameSection
-
-	-- Name Input Box
-	local nameInput = Instance.new("TextBox")
-	nameInput.Size = UDim2.new(1, -20, 0, 25)
-	nameInput.Position = UDim2.new(0, 10, 0, 25)
-	nameInput.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-	nameInput.Text = CustomNameText
-	nameInput.TextColor3 = Color3.new(1, 1, 1)
-	nameInput.Font = Enum.Font.Gotham
-	nameInput.TextSize = 12
-	nameInput.PlaceholderText = "Enter custom name..."
-	nameInput.BorderSizePixel = 0
-	nameInput.Parent = nameSection
-	
-	local inputCorner = Instance.new("UICorner")
-	inputCorner.CornerRadius = UDim.new(0, 4)
-	inputCorner.Parent = nameInput
-
-	-- Name Toggle Button
-	local nameButton = Instance.new("TextButton")
-	nameButton.Size = UDim2.new(1, -20, 0, 25)
-	nameButton.Position = UDim2.new(0, 10, 0, 50)
-	nameButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-	nameButton.Text = "🏷️ Toggle Custom Name"
-	nameButton.TextColor3 = Color3.new(1, 1, 1)
-	nameButton.Font = Enum.Font.Gotham
-	nameButton.TextSize = 10
-	nameButton.BorderSizePixel = 0
-	nameButton.Parent = nameSection
-	
-	local nameBtnCorner = Instance.new("UICorner")
-	nameBtnCorner.CornerRadius = UDim.new(0, 4)
-	nameBtnCorner.Parent = nameButton
+	title.MouseLeave:Connect(function()
+		title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+		title.Text = "🚀 Enhanced Fly + GodMode [Drag Me]"
+	end)
 
 	-- Method Selection
 	local methodSection = Instance.new("Frame")
 	methodSection.Size = UDim2.new(1, -10, 0, 60)
-	methodSection.Position = UDim2.new(0, 5, 0, 125)
+	methodSection.Position = UDim2.new(0, 5, 0, 40)
 	methodSection.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 	methodSection.BackgroundTransparency = 0.3
 	methodSection.BorderSizePixel = 0
@@ -402,7 +346,7 @@ local function buildMainGUI()
 	-- Speed Control Section
 	local speedSection = Instance.new("Frame")
 	speedSection.Size = UDim2.new(1, -10, 0, 80)
-	speedSection.Position = UDim2.new(0, 5, 0, 190)
+	speedSection.Position = UDim2.new(0, 5, 0, 105)
 	speedSection.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 	speedSection.BackgroundTransparency = 0.3
 	speedSection.BorderSizePixel = 0
@@ -484,7 +428,7 @@ local function buildMainGUI()
 	-- NoClip Control Section
 	local noclipSection = Instance.new("Frame")
 	noclipSection.Size = UDim2.new(1, -10, 0, 70)
-	noclipSection.Position = UDim2.new(0, 5, 0, 275)
+	noclipSection.Position = UDim2.new(0, 5, 0, 190)
 	noclipSection.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 	noclipSection.BackgroundTransparency = 0.3
 	noclipSection.BorderSizePixel = 0
@@ -521,28 +465,45 @@ local function buildMainGUI()
 	noclipStatus.TextSize = 10
 	noclipStatus.Parent = noclipSection
 
-	-- Name Input Logic
-	nameInput.FocusLost:Connect(function()
-		CustomNameText = nameInput.Text
-		if CustomNameEnabled then
-			RemoveCustomName()
-			CreateCustomName()
-		end
-	end)
+	-- GODMODE CONTROL SECTION (NEW!)
+	local godmodeSection = Instance.new("Frame")
+	godmodeSection.Size = UDim2.new(1, -10, 0, 70)
+	godmodeSection.Position = UDim2.new(0, 5, 0, 265)
+	godmodeSection.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+	godmodeSection.BackgroundTransparency = 0.3
+	godmodeSection.BorderSizePixel = 0
+	godmodeSection.Parent = MainFrame
+	
+	local godmodeCorner = Instance.new("UICorner")
+	godmodeCorner.CornerRadius = UDim.new(0, 6)
+	godmodeCorner.Parent = godmodeSection
 
-	-- Name Button Logic
-	nameButton.MouseButton1Click:Connect(function()
-		CustomNameEnabled = not CustomNameEnabled
-		if CustomNameEnabled then
-			CreateCustomName()
-			nameButton.BackgroundColor3 = Color3.fromRGB(255, 100, 0)
-			nameButton.Text = "👹 Custom Name: ON"
-		else
-			RemoveCustomName()
-			nameButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-			nameButton.Text = "🏷️ Toggle Custom Name"
-		end
-	end)
+	-- GodMode Toggle Button
+	local godmodeButton = Instance.new("TextButton")
+	godmodeButton.Size = UDim2.new(1, -20, 0, 35)
+	godmodeButton.Position = UDim2.new(0, 10, 0, 10)
+	godmodeButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+	godmodeButton.Text = "🛡️ GodMode: OFF"
+	godmodeButton.TextColor3 = Color3.new(1, 1, 1)
+	godmodeButton.Font = Enum.Font.GothamBold
+	godmodeButton.TextSize = 12
+	godmodeButton.BorderSizePixel = 0
+	godmodeButton.Parent = godmodeSection
+	
+	local godmodeBtnCorner = Instance.new("UICorner")
+	godmodeBtnCorner.CornerRadius = UDim.new(0, 6)
+	godmodeBtnCorner.Parent = godmodeButton
+
+	-- GodMode Status Label
+	local godmodeStatus = Instance.new("TextLabel")
+	godmodeStatus.Size = UDim2.new(1, 0, 0, 20)
+	godmodeStatus.Position = UDim2.new(0, 0, 0, 45)
+	godmodeStatus.BackgroundTransparency = 1
+	godmodeStatus.Text = "Press H or click button to toggle"
+	godmodeStatus.TextColor3 = Color3.fromRGB(150, 150, 150)
+	godmodeStatus.Font = Enum.Font.Gotham
+	godmodeStatus.TextSize = 10
+	godmodeStatus.Parent = godmodeSection
 
 	-- Slider Logic
 	local sliderDragging = false
@@ -589,9 +550,27 @@ local function buildMainGUI()
 			noclipStatus.TextColor3 = Color3.fromRGB(150, 150, 150)
 		end
 	end)
+
+	-- GodMode Button Logic (NEW!)
+	godmodeButton.MouseButton1Click:Connect(function()
+		GodMode = not GodMode
+		if GodMode then
+			StartGodMode()
+			godmodeButton.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+			godmodeButton.Text = "⚡ GodMode: ON"
+			godmodeStatus.Text = "Kebal damage - Health unlimited!"
+			godmodeStatus.TextColor3 = Color3.fromRGB(255, 255, 0)
+		else
+			StopGodMode()
+			godmodeButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+			godmodeButton.Text = "🛡️ GodMode: OFF"
+			godmodeStatus.Text = "Press H or click button to toggle"
+			godmodeStatus.TextColor3 = Color3.fromRGB(150, 150, 150)
+		end
+	end)
 end
 
--- INPUT CONTROL
+-- INPUT CONTROL (Updated with H key for GodMode)
 UserInputService.InputBegan:Connect(function(input, gpe)
 	if gpe then return end
 	if input.KeyCode == Enum.KeyCode.F then
@@ -600,15 +579,11 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 	elseif input.KeyCode == Enum.KeyCode.N then
 		NoClipping = not NoClipping
 		if NoClipping then StartNoClip() else StopNoClip() end
+	elseif input.KeyCode == Enum.KeyCode.H then
+		GodMode = not GodMode
+		if GodMode then StartGodMode() else StopGodMode() end
 	elseif input.KeyCode == Enum.KeyCode.G then
 		toggleGUI()
-	elseif input.KeyCode == Enum.KeyCode.L then -- L key to toggle custom name
-		CustomNameEnabled = not CustomNameEnabled
-		if CustomNameEnabled then
-			CreateCustomName()
-		else
-			RemoveCustomName()
-		end
 	end
 end)
 
@@ -659,31 +634,26 @@ Player.CharacterAdded:Connect(function(newCharacter)
 	HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 	Flying = false
 	NoClipping = false
-	CustomNameEnabled = false
+	GodMode = false
 	OriginalCanCollide = {}
+	OriginalMaxHealth = nil
+	
+	-- Clean up connections
+	if HealthConnection then HealthConnection:Disconnect(); HealthConnection = nil end
+	if TakeDamageConnection then TakeDamageConnection:Disconnect(); TakeDamageConnection = nil end
+	
 	StopFlying()
 	StopNoClip()
-	RemoveCustomName()
-	
-	-- Rebuild GUI to refresh references
-	wait(1)
-	buildMainGUI()
+	StopGodMode()
 end)
 
 -- INIT GUI
 buildMainGUI()
 
-print("Enhanced Fly & NoClip Script dengan Custom Name Loaded!")
+print("Enhanced Fly, NoClip & GodMode Script Loaded!")
 print("Controls:")
 print("F - Toggle Fly")
 print("N - Toggle NoClip")
+print("H - Toggle GodMode (NEW!)")
 print("G - Toggle GUI (Show/Hide)")
-print("L - Toggle Custom Name Display")
-print("WASD - Movement, Space - Up, Ctrl - Down")
-print("Drag title bar to move GUI")
-print("Features:")
-print("- Custom name display diatas kepala")
-print("- Animasi nama berkedip warna merah-orange")
-print("- Input box untuk ganti nama custom")
-print("- 3 metode network untuk visibility")
-print("- Speed slider dan noclip toggle")
+print("WASD - Movement, Space - Up,
