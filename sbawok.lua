@@ -20,6 +20,8 @@ local OriginalCanCollide = {}
 local OriginalMaxHealth = nil
 local HealthConnection = nil
 local TakeDamageConnection = nil
+local HeartbeatConnection = nil
+local StateConnection = nil
 
 -- Network method variables
 local NetworkMethod = "BodyVelocity" -- "BodyVelocity", "CFrame", or "Humanoid"
@@ -36,30 +38,92 @@ local function StartGodMode()
 			OriginalMaxHealth = Humanoid.MaxHealth
 		end
 		
-		-- Set health to maximum and keep it there
+		-- FORCE UNLIMITED HEALTH - Multiple methods
 		Humanoid.MaxHealth = math.huge
 		Humanoid.Health = math.huge
 		
-		-- Connect health changed event to maintain infinite health
+		-- Method 1: Health monitoring (instant restore)
 		if HealthConnection then HealthConnection:Disconnect() end
 		HealthConnection = Humanoid.HealthChanged:Connect(function(health)
-			if GodMode and health < math.huge then
+			if GodMode then
+				Humanoid.MaxHealth = math.huge
 				Humanoid.Health = math.huge
 			end
 		end)
 		
-		-- Try to block TakeDamage (if it exists)
+		-- Method 2: Block state changes that can kill
+		if StateConnection then StateConnection:Disconnect() end
+		StateConnection = Humanoid.StateChanged:Connect(function(old, new)
+			if GodMode then
+				if new == Enum.HumanoidStateType.Dead then
+					Humanoid:ChangeState(Enum.HumanoidStateType.Running)
+					Humanoid.Health = math.huge
+				elseif new == Enum.HumanoidStateType.FallingDown then
+					Humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+				end
+			end
+		end)
+		
+		-- Method 3: Frame-by-frame forced unlimited health
+		if HeartbeatConnection then HeartbeatConnection:Disconnect() end
+		HeartbeatConnection = RunService.Heartbeat:Connect(function()
+			if GodMode and Humanoid then
+				-- Force unlimited health every frame
+				if Humanoid.MaxHealth ~= math.huge then
+					Humanoid.MaxHealth = math.huge
+				end
+				if Humanoid.Health ~= math.huge then
+					Humanoid.Health = math.huge
+				end
+				
+				-- Disable fall damage states
+				pcall(function()
+					Humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+					Humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+				end)
+				
+				-- Slow down extreme falls
+				if HumanoidRootPart and HumanoidRootPart.AssemblyLinearVelocity.Y < -80 then
+					local bodyVel = HumanoidRootPart:FindFirstChild("FallProtection")
+					if not bodyVel then
+						bodyVel = Instance.new("BodyVelocity")
+						bodyVel.Name = "FallProtection"
+						bodyVel.MaxForce = Vector3.new(0, math.huge, 0)
+						bodyVel.Velocity = Vector3.new(0, -30, 0)
+						bodyVel.Parent = HumanoidRootPart
+						game:GetService("Debris"):AddItem(bodyVel, 1)
+					end
+				end
+			end
+		end)
+		
+		-- Method 4: Block damage functions
 		pcall(function()
 			if TakeDamageConnection then TakeDamageConnection:Disconnect() end
-			if Humanoid:FindFirstChild("TakeDamage") then
-				TakeDamageConnection = Humanoid.TakeDamage:Connect(function()
-					return -- Block all damage
+			local takeDamage = Humanoid:FindFirstChild("TakeDamage")
+			if takeDamage then
+				TakeDamageConnection = takeDamage:Connect(function()
+					Humanoid.Health = math.huge
+					return false -- Block damage
 				end)
 			end
 		end)
 		
+		-- Method 5: Block death event
+		pcall(function()
+			Humanoid.Died:Connect(function()
+				if GodMode then
+					wait()
+					Humanoid.Health = math.huge
+					Humanoid.MaxHealth = math.huge
+					Humanoid:ChangeState(Enum.HumanoidStateType.Running)
+				end
+			end)
+		end)
+		
 		GodMode = true
-		print("🛡️ GodMode Activated - Kebal damage!")
+		print("🛡️ UNLIMITED HEALTH ACTIVE - Completely invincible!")
+		print("Health: ∞ | MaxHealth: ∞")
 	end
 end
 
@@ -74,7 +138,7 @@ local function StopGodMode()
 			Humanoid.Health = 100
 		end
 		
-		-- Disconnect health monitoring
+		-- Disconnect all godmode connections
 		if HealthConnection then
 			HealthConnection:Disconnect()
 			HealthConnection = nil
@@ -85,8 +149,32 @@ local function StopGodMode()
 			TakeDamageConnection = nil
 		end
 		
+		if HeartbeatConnection then
+			HeartbeatConnection:Disconnect()
+			HeartbeatConnection = nil
+		end
+		
+		if StateConnection then
+			StateConnection:Disconnect()
+			StateConnection = nil
+		end
+		
+		-- Re-enable normal states
+		pcall(function()
+			Humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
+			Humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+		end)
+		
+		-- Remove fall protection
+		if HumanoidRootPart then
+			local fallProtection = HumanoidRootPart:FindFirstChild("FallProtection")
+			if fallProtection then
+				fallProtection:Destroy()
+			end
+		end
+		
 		GodMode = false
-		print("🩸 GodMode Deactivated - Damage normal kembali")
+		print("🩸 GodMode Deactivated - Health back to normal")
 	end
 end
 
@@ -641,6 +729,8 @@ Player.CharacterAdded:Connect(function(newCharacter)
 	-- Clean up connections
 	if HealthConnection then HealthConnection:Disconnect(); HealthConnection = nil end
 	if TakeDamageConnection then TakeDamageConnection:Disconnect(); TakeDamageConnection = nil end
+	if HeartbeatConnection then HeartbeatConnection:Disconnect(); HeartbeatConnection = nil end
+	if StateConnection then StateConnection:Disconnect(); StateConnection = nil end
 	
 	StopFlying()
 	StopNoClip()
