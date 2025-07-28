@@ -122,8 +122,6 @@ local function StartGodMode()
 		end)
 		
 		GodMode = true
-		print("🛡️ UNLIMITED HEALTH ACTIVE - Completely invincible!")
-		print("Health: ∞ | MaxHealth: ∞")
 	end
 end
 
@@ -174,7 +172,6 @@ local function StopGodMode()
 		end
 		
 		GodMode = false
-		print("🩸 GodMode Deactivated - Health back to normal")
 	end
 end
 
@@ -739,17 +736,3 @@ end)
 
 -- INIT GUI
 buildMainGUI()
-
-print("Enhanced Fly, NoClip & GodMode Script Loaded!")
-print("Controls:")
-print("F - Toggle Fly")
-print("N - Toggle NoClip") 
-print("H - Toggle GodMode (NEW!)")
-print("G - Toggle GUI (Show/Hide)")
-print("WASD - Movement, Space - Up, Ctrl - Down")
-print("Drag title bar to move GUI")
-print("Try different network methods for visibility:")
-print("- Body: Smoothest (client-side)")
-print("- CFrame: More visible to others") 
-print("- Humanoid: Most compatible")
-print("🛡️ GodMode: Makes you invincible to all damage!")
