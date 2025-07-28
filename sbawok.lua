@@ -7,21 +7,18 @@ local Player = Players.LocalPlayer
 local Character = Player.Character or Player.CharacterAdded:Wait()
 local Humanoid = Character:WaitForChild("Humanoid")
 local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+local Mouse = Player:GetMouse()
 
 local Flying = false
 local NoClipping = false
-local GodMode = false
 local Speed = 60
 local BodyGyro = nil
 local BodyVelocity = nil
 local OriginalCanCollide = {}
 
--- Godmode variables
-local OriginalMaxHealth = nil
-local HealthConnection = nil
-local TakeDamageConnection = nil
-local HeartbeatConnection = nil
-local StateConnection = nil
+-- Object Deletion variables
+local TargetedObject = nil
+local TargetHighlight = nil
 
 -- Network method variables
 local NetworkMethod = "BodyVelocity" -- "BodyVelocity", "CFrame", or "Humanoid"
@@ -30,148 +27,59 @@ local MainUI
 local MainFrame
 local GuiVisible = true
 
--- GODMODE FUNCTIONS
-local function StartGodMode()
-	if Humanoid then
-		-- Store original max health
-		if not OriginalMaxHealth then
-			OriginalMaxHealth = Humanoid.MaxHealth
-		end
-		
-		-- FORCE UNLIMITED HEALTH - Multiple methods
-		Humanoid.MaxHealth = math.huge
-		Humanoid.Health = math.huge
-		
-		-- Method 1: Health monitoring (instant restore)
-		if HealthConnection then HealthConnection:Disconnect() end
-		HealthConnection = Humanoid.HealthChanged:Connect(function(health)
-			if GodMode then
-				Humanoid.MaxHealth = math.huge
-				Humanoid.Health = math.huge
-			end
-		end)
-		
-		-- Method 2: Block state changes that can kill
-		if StateConnection then StateConnection:Disconnect() end
-		StateConnection = Humanoid.StateChanged:Connect(function(old, new)
-			if GodMode then
-				if new == Enum.HumanoidStateType.Dead then
-					Humanoid:ChangeState(Enum.HumanoidStateType.Running)
-					Humanoid.Health = math.huge
-				elseif new == Enum.HumanoidStateType.FallingDown then
-					Humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-				end
-			end
-		end)
-		
-		-- Method 3: Frame-by-frame forced unlimited health
-		if HeartbeatConnection then HeartbeatConnection:Disconnect() end
-		HeartbeatConnection = RunService.Heartbeat:Connect(function()
-			if GodMode and Humanoid then
-				-- Force unlimited health every frame
-				if Humanoid.MaxHealth ~= math.huge then
-					Humanoid.MaxHealth = math.huge
-				end
-				if Humanoid.Health ~= math.huge then
-					Humanoid.Health = math.huge
-				end
-				
-				-- Disable fall damage states
-				pcall(function()
-					Humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-					Humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-				end)
-				
-				-- Slow down extreme falls
-				if HumanoidRootPart and HumanoidRootPart.AssemblyLinearVelocity.Y < -80 then
-					local bodyVel = HumanoidRootPart:FindFirstChild("FallProtection")
-					if not bodyVel then
-						bodyVel = Instance.new("BodyVelocity")
-						bodyVel.Name = "FallProtection"
-						bodyVel.MaxForce = Vector3.new(0, math.huge, 0)
-						bodyVel.Velocity = Vector3.new(0, -30, 0)
-						bodyVel.Parent = HumanoidRootPart
-						game:GetService("Debris"):AddItem(bodyVel, 1)
-					end
-				end
-			end
-		end)
-		
-		-- Method 4: Block damage functions
-		pcall(function()
-			if TakeDamageConnection then TakeDamageConnection:Disconnect() end
-			local takeDamage = Humanoid:FindFirstChild("TakeDamage")
-			if takeDamage then
-				TakeDamageConnection = takeDamage:Connect(function()
-					Humanoid.Health = math.huge
-					return false -- Block damage
-				end)
-			end
-		end)
-		
-		-- Method 5: Block death event
-		pcall(function()
-			Humanoid.Died:Connect(function()
-				if GodMode then
-					wait()
-					Humanoid.Health = math.huge
-					Humanoid.MaxHealth = math.huge
-					Humanoid:ChangeState(Enum.HumanoidStateType.Running)
-				end
-			end)
-		end)
-		
-		GodMode = true
+-- OBJECT TARGETING FUNCTIONS
+local function CreateHighlight(obj)
+	if TargetHighlight then
+		TargetHighlight:Destroy()
+	end
+	
+	if obj and obj:IsA("BasePart") then
+		TargetHighlight = Instance.new("SelectionBox")
+		TargetHighlight.Adornee = obj
+		TargetHighlight.Color3 = Color3.new(1, 0, 0)
+		TargetHighlight.LineThickness = 0.2
+		TargetHighlight.Transparency = 0.3
+		TargetHighlight.Parent = workspace
 	end
 end
 
-local function StopGodMode()
-	if Humanoid then
-		-- Restore original health values
-		if OriginalMaxHealth then
-			Humanoid.MaxHealth = OriginalMaxHealth
-			Humanoid.Health = OriginalMaxHealth
-		else
-			Humanoid.MaxHealth = 100
-			Humanoid.Health = 100
-		end
+local function ClearTarget()
+	TargetedObject = nil
+	if TargetHighlight then
+		TargetHighlight:Destroy()
+		TargetHighlight = nil
+	end
+end
+
+local function TargetObject()
+	local ray = workspace.CurrentCamera:ScreenPointToRay(Mouse.X, Mouse.Y)
+	local hit, position = workspace:Raycast(ray.Origin, ray.Direction * 1000)
+	
+	if hit and hit.Instance then
+		local hitObj = hit.Instance
 		
-		-- Disconnect all godmode connections
-		if HealthConnection then
-			HealthConnection:Disconnect()
-			HealthConnection = nil
+		-- Filter out player characters and important objects
+		if hitObj.Parent ~= Character and 
+		   not hitObj:IsDescendantOf(Players.LocalPlayer) and
+		   hitObj.Parent ~= workspace.CurrentCamera and
+		   hitObj.Name ~= "Terrain" then
+			
+			TargetedObject = hitObj
+			CreateHighlight(hitObj)
+			return hitObj
 		end
-		
-		if TakeDamageConnection then
-			TakeDamageConnection:Disconnect()
-			TakeDamageConnection = nil
-		end
-		
-		if HeartbeatConnection then
-			HeartbeatConnection:Disconnect()
-			HeartbeatConnection = nil
-		end
-		
-		if StateConnection then
-			StateConnection:Disconnect()
-			StateConnection = nil
-		end
-		
-		-- Re-enable normal states
+	end
+	
+	ClearTarget()
+	return nil
+end
+
+local function DeleteTargetedObject()
+	if TargetedObject and TargetedObject.Parent then
 		pcall(function()
-			Humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
-			Humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
+			TargetedObject:Destroy()
 		end)
-		
-		-- Remove fall protection
-		if HumanoidRootPart then
-			local fallProtection = HumanoidRootPart:FindFirstChild("FallProtection")
-			if fallProtection then
-				fallProtection:Destroy()
-			end
-		end
-		
-		GodMode = false
+		ClearTarget()
 	end
 end
 
@@ -285,7 +193,7 @@ local function buildMainGUI()
 	MainUI.Parent = CoreGui
 	MainUI.ResetOnSpawn = false
 
-	-- Main Frame (increased height for godmode section)
+	-- Main Frame (adjusted height for object deletion section)
 	MainFrame = Instance.new("Frame")
 	MainFrame.Size = UDim2.new(0, 300, 0, 360)
 	MainFrame.Position = UDim2.new(0.02, 0, 0.15, 0)
@@ -303,7 +211,7 @@ local function buildMainGUI()
 	title.Size = UDim2.new(1, 0, 0, 35)
 	title.Position = UDim2.new(0, 0, 0, 0)
 	title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-	title.Text = "🚀 Enhanced Fly + GodMode [Drag Me]"
+	title.Text = "🚀 Enhanced Fly + Object Destroyer [Drag Me]"
 	title.TextColor3 = Color3.new(1, 1, 1)
 	title.Font = Enum.Font.GothamBold
 	title.TextSize = 14
@@ -344,12 +252,12 @@ local function buildMainGUI()
 	-- Hover effect for title
 	title.MouseEnter:Connect(function()
 		title.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-		title.Text = "🚀 Enhanced Fly + GodMode [Dragging...]"
+		title.Text = "🚀 Enhanced Fly + Object Destroyer [Dragging...]"
 	end)
 
 	title.MouseLeave:Connect(function()
 		title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-		title.Text = "🚀 Enhanced Fly + GodMode [Drag Me]"
+		title.Text = "🚀 Enhanced Fly + Object Destroyer [Drag Me]"
 	end)
 
 	-- Method Selection
@@ -550,45 +458,66 @@ local function buildMainGUI()
 	noclipStatus.TextSize = 10
 	noclipStatus.Parent = noclipSection
 
-	-- GODMODE CONTROL SECTION (NEW!)
-	local godmodeSection = Instance.new("Frame")
-	godmodeSection.Size = UDim2.new(1, -10, 0, 70)
-	godmodeSection.Position = UDim2.new(0, 5, 0, 265)
-	godmodeSection.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-	godmodeSection.BackgroundTransparency = 0.3
-	godmodeSection.BorderSizePixel = 0
-	godmodeSection.Parent = MainFrame
+	-- OBJECT DELETION CONTROL SECTION (NEW!)
+	local deleteSection = Instance.new("Frame")
+	deleteSection.Size = UDim2.new(1, -10, 0, 70)
+	deleteSection.Position = UDim2.new(0, 5, 0, 265)
+	deleteSection.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+	deleteSection.BackgroundTransparency = 0.3
+	deleteSection.BorderSizePixel = 0
+	deleteSection.Parent = MainFrame
 	
-	local godmodeCorner = Instance.new("UICorner")
-	godmodeCorner.CornerRadius = UDim.new(0, 6)
-	godmodeCorner.Parent = godmodeSection
+	local deleteCorner = Instance.new("UICorner")
+	deleteCorner.CornerRadius = UDim.new(0, 6)
+	deleteCorner.Parent = deleteSection
 
-	-- GodMode Toggle Button
-	local godmodeButton = Instance.new("TextButton")
-	godmodeButton.Size = UDim2.new(1, -20, 0, 35)
-	godmodeButton.Position = UDim2.new(0, 10, 0, 10)
-	godmodeButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-	godmodeButton.Text = "🛡️ GodMode: OFF"
-	godmodeButton.TextColor3 = Color3.new(1, 1, 1)
-	godmodeButton.Font = Enum.Font.GothamBold
-	godmodeButton.TextSize = 12
-	godmodeButton.BorderSizePixel = 0
-	godmodeButton.Parent = godmodeSection
+	-- Object Deletion Button
+	local deleteButton = Instance.new("TextButton")
+	deleteButton.Size = UDim2.new(1, -20, 0, 35)
+	deleteButton.Position = UDim2.new(0, 10, 0, 10)
+	deleteButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+	deleteButton.Text = "💥 Object Destroyer: Ready"
+	deleteButton.TextColor3 = Color3.new(1, 1, 1)
+	deleteButton.Font = Enum.Font.GothamBold
+	deleteButton.TextSize = 12
+	deleteButton.BorderSizePixel = 0
+	deleteButton.Parent = deleteSection
 	
-	local godmodeBtnCorner = Instance.new("UICorner")
-	godmodeBtnCorner.CornerRadius = UDim.new(0, 6)
-	godmodeBtnCorner.Parent = godmodeButton
+	local deleteBtnCorner = Instance.new("UICorner")
+	deleteBtnCorner.CornerRadius = UDim.new(0, 6)
+	deleteBtnCorner.Parent = deleteButton
 
-	-- GodMode Status Label
-	local godmodeStatus = Instance.new("TextLabel")
-	godmodeStatus.Size = UDim2.new(1, 0, 0, 20)
-	godmodeStatus.Position = UDim2.new(0, 0, 0, 45)
-	godmodeStatus.BackgroundTransparency = 1
-	godmodeStatus.Text = "Press H or click button to toggle"
-	godmodeStatus.TextColor3 = Color3.fromRGB(150, 150, 150)
-	godmodeStatus.Font = Enum.Font.Gotham
-	godmodeStatus.TextSize = 10
-	godmodeStatus.Parent = godmodeSection
+	-- Object Deletion Status Label
+	local deleteStatus = Instance.new("TextLabel")
+	deleteStatus.Size = UDim2.new(1, 0, 0, 20)
+	deleteStatus.Position = UDim2.new(0, 0, 0, 45)
+	deleteStatus.BackgroundTransparency = 1
+	deleteStatus.Text = "Click object then press M to delete"
+	deleteStatus.TextColor3 = Color3.fromRGB(150, 150, 150)
+	deleteStatus.Font = Enum.Font.Gotham
+	deleteStatus.TextSize = 10
+	deleteStatus.Parent = deleteSection
+
+	-- Update delete status based on targeted object
+	local function updateDeleteStatus()
+		if TargetedObject then
+			deleteButton.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+			deleteButton.Text = "🎯 Target: " .. (TargetedObject.Name or "Unknown")
+			deleteStatus.Text = "Press M to delete targeted object"
+			deleteStatus.TextColor3 = Color3.fromRGB(255, 150, 150)
+		else
+			deleteButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+			deleteButton.Text = "💥 Object Destroyer: Ready"
+			deleteStatus.Text = "Click object then press M to delete"
+			deleteStatus.TextColor3 = Color3.fromRGB(150, 150, 150)
+		end
+	end
+
+	-- Connect mouse click for targeting
+	Mouse.Button1Down:Connect(function()
+		local target = TargetObject()
+		updateDeleteStatus()
+	end)
 
 	-- Slider Logic
 	local sliderDragging = false
@@ -636,26 +565,16 @@ local function buildMainGUI()
 		end
 	end)
 
-	-- GodMode Button Logic (NEW!)
-	godmodeButton.MouseButton1Click:Connect(function()
-		GodMode = not GodMode
-		if GodMode then
-			StartGodMode()
-			godmodeButton.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
-			godmodeButton.Text = "⚡ GodMode: ON"
-			godmodeStatus.Text = "Kebal damage - Health unlimited!"
-			godmodeStatus.TextColor3 = Color3.fromRGB(255, 255, 0)
-		else
-			StopGodMode()
-			godmodeButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-			godmodeButton.Text = "🛡️ GodMode: OFF"
-			godmodeStatus.Text = "Press H or click button to toggle"
-			godmodeStatus.TextColor3 = Color3.fromRGB(150, 150, 150)
+	-- Delete Button Logic (Clear target)
+	deleteButton.MouseButton1Click:Connect(function()
+		if TargetedObject then
+			DeleteTargetedObject()
+			updateDeleteStatus()
 		end
 	end)
 end
 
--- INPUT CONTROL (Updated with H key for GodMode)
+-- INPUT CONTROL (Updated with M key for Object Deletion)
 UserInputService.InputBegan:Connect(function(input, gpe)
 	if gpe then return end
 	if input.KeyCode == Enum.KeyCode.F then
@@ -664,9 +583,8 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 	elseif input.KeyCode == Enum.KeyCode.N then
 		NoClipping = not NoClipping
 		if NoClipping then StartNoClip() else StopNoClip() end
-	elseif input.KeyCode == Enum.KeyCode.H then
-		GodMode = not GodMode
-		if GodMode then StartGodMode() else StopGodMode() end
+	elseif input.KeyCode == Enum.KeyCode.M then
+		DeleteTargetedObject()
 	elseif input.KeyCode == Enum.KeyCode.G then
 		toggleGUI()
 	end
@@ -719,19 +637,13 @@ Player.CharacterAdded:Connect(function(newCharacter)
 	HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 	Flying = false
 	NoClipping = false
-	GodMode = false
 	OriginalCanCollide = {}
-	OriginalMaxHealth = nil
 	
-	-- Clean up connections
-	if HealthConnection then HealthConnection:Disconnect(); HealthConnection = nil end
-	if TakeDamageConnection then TakeDamageConnection:Disconnect(); TakeDamageConnection = nil end
-	if HeartbeatConnection then HeartbeatConnection:Disconnect(); HeartbeatConnection = nil end
-	if StateConnection then StateConnection:Disconnect(); StateConnection = nil end
+	-- Clear object targeting
+	ClearTarget()
 	
 	StopFlying()
 	StopNoClip()
-	StopGodMode()
 end)
 
 -- INIT GUI
